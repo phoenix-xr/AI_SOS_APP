@@ -1,13 +1,21 @@
-import React from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import {
   View,
   Text,
   StyleSheet,
   TouchableOpacity,
   Alert,
+  ScrollView,
+  Animated,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { BluetoothDevice } from '../services/bluetooth';
+import {
+  BluetoothDevice,
+  disconnectDevice,
+  HealthTelemetry,
+  parseHealthTelemetry,
+  subscribeToDeviceData,
+} from '../services/bluetooth';
 
 interface Props {
   device: BluetoothDevice;
@@ -15,8 +23,60 @@ interface Props {
   onGoToHome?: () => void;
 }
 
+interface PacketLogItem {
+  id: string;
+  text: string;
+  time: string;
+}
+
 export default function DeviceDetailScreen({ device, onDisconnect, onGoToHome }: Props) {
   const insets = useSafeAreaInsets();
+
+  const [telemetry, setTelemetry] = useState<HealthTelemetry | null>(null);
+  const [packetCount, setPacketCount] = useState<number>(0);
+  const [packetHistory, setPacketHistory] = useState<PacketLogItem[]>([]);
+
+  // Pulse animation for live data indicator
+  const pulseAnim = useRef(new Animated.Value(1)).current;
+
+  useEffect(() => {
+    const pulse = Animated.loop(
+      Animated.sequence([
+        Animated.timing(pulseAnim, {
+          toValue: 0.3,
+          duration: 700,
+          useNativeDriver: true,
+        }),
+        Animated.timing(pulseAnim, {
+          toValue: 1,
+          duration: 700,
+          useNativeDriver: true,
+        }),
+      ])
+    );
+    pulse.start();
+    return () => pulse.stop();
+  }, [pulseAnim]);
+
+  // Subscribe to real-time incoming BLE data from this device
+  useEffect(() => {
+    const unsubscribe = subscribeToDeviceData(device.macAddress, incoming => {
+      setTelemetry(incoming);
+      setPacketCount(prev => prev + 1);
+      setPacketHistory(prev => [
+        {
+          id: `${Date.now()}-${Math.random()}`,
+          text: incoming.raw,
+          time: new Date(incoming.timestamp).toLocaleTimeString(),
+        },
+        ...prev.slice(0, 24), // keep last 25 packets
+      ]);
+    });
+
+    return () => {
+      unsubscribe();
+    };
+  }, [device.macAddress]);
 
   const handleDisconnect = () => {
     Alert.alert('Disconnect Device', 'Are you sure you want to disconnect from this device?', [
@@ -24,83 +84,196 @@ export default function DeviceDetailScreen({ device, onDisconnect, onGoToHome }:
       {
         text: 'Disconnect',
         style: 'destructive',
-        onPress: onDisconnect,
+        onPress: () => {
+          disconnectDevice(device.macAddress);
+          onDisconnect();
+        },
       },
     ]);
   };
 
+  // Optional test simulation to preview packet parsing
+  const handleSimulateTestPacket = () => {
+    const randomHR = Math.floor(68 + Math.random() * 22);
+    const randomSpO2 = Math.floor(96 + Math.random() * 4);
+    const randomTemp = parseFloat((36.4 + Math.random() * 0.8).toFixed(1));
+    const randomBatt = Math.floor(82 + Math.random() * 15);
+    const testJson = JSON.stringify({
+      heartRate: randomHR,
+      spo2: randomSpO2,
+      temperature: randomTemp,
+      battery: randomBatt,
+    });
+
+    const parsed = parseHealthTelemetry(testJson, Date.now());
+    setTelemetry(parsed);
+    setPacketCount(prev => prev + 1);
+    setPacketHistory(prev => [
+      {
+        id: `${Date.now()}-${Math.random()}`,
+        text: testJson,
+        time: new Date().toLocaleTimeString(),
+      },
+      ...prev.slice(0, 24),
+    ]);
+  };
+
+  const getDeviceIcon = () => {
+    const name = device.name.toLowerCase();
+    if (name.includes('esp32')) return '📟';
+    if (name.includes('band')) return '⌚';
+    if (name.includes('ecg')) return '💓';
+    if (name.includes('oximeter') || name.includes('spo2')) return '🩸';
+    if (name.includes('beacon')) return '📡';
+    return '🩺';
+  };
+
   return (
-    <View style={[styles.container, { paddingTop: insets.top + 20, paddingBottom: insets.bottom + 24 }]}>
-      {/* Top Header Card with Device Name on the Top */}
-      <View style={styles.topHeaderCard}>
-        <View style={styles.deviceHeaderRow}>
-          <View style={styles.deviceIconCircle}>
-            <Text style={styles.deviceIcon}>🩺</Text>
+    <View style={[styles.container, { paddingTop: insets.top + 12, paddingBottom: insets.bottom + 16 }]}>
+      <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.scrollContent}>
+        {/* Top Header Card with Device Name on the Top */}
+        <View style={styles.topHeaderCard}>
+          <View style={styles.deviceHeaderRow}>
+            <View style={styles.deviceIconCircle}>
+              <Text style={styles.deviceIcon}>{getDeviceIcon()}</Text>
+            </View>
+            <View style={styles.deviceTitleContainer}>
+              <Text style={styles.deviceLabel}>CONNECTED BLE PERIPHERAL</Text>
+              <Text style={styles.deviceName} numberOfLines={2}>
+                {device.name}
+              </Text>
+            </View>
           </View>
-          <View style={styles.deviceTitleContainer}>
-            <Text style={styles.deviceLabel}>CONNECTED DEVICE</Text>
-            {/* Device Name on the Top as requested */}
-            <Text style={styles.deviceName} numberOfLines={2}>
-              {device.name}
+
+          <View style={styles.statusRow}>
+            <View style={styles.connectedBadge}>
+              <Animated.View style={[styles.greenPulseDot, { opacity: pulseAnim }]} />
+              <Text style={styles.connectedText}>
+                {packetCount > 0 ? 'Receiving Live Data' : 'GATT Linked'}
+              </Text>
+            </View>
+            <Text style={styles.deviceIdText}>MAC: {device.macAddress}</Text>
+          </View>
+        </View>
+
+        {/* Live Vitals Grid */}
+        <View style={styles.sectionHeaderRow}>
+          <Text style={styles.sectionHeader}>Live Medical Telemetry</Text>
+          <View style={styles.liveIndicatorBadge}>
+            <Animated.View style={[styles.liveDot, { opacity: pulseAnim }]} />
+            <Text style={styles.liveIndicatorText}>
+              {packetCount > 0 ? `${packetCount} pkts` : 'Awaiting ESP32'}
             </Text>
           </View>
         </View>
 
-        <View style={styles.statusRow}>
-          <View style={styles.connectedBadge}>
-            <View style={styles.greenPulseDot} />
-            <Text style={styles.connectedText}>Connected via Bluetooth</Text>
-          </View>
-          <Text style={styles.deviceIdText}>ID: {device.id}</Text>
-        </View>
-      </View>
-
-      {/* Middle Specs & Telemetry Readiness Card */}
-      <View style={styles.contentSection}>
-        <Text style={styles.sectionHeader}>Hardware Status</Text>
-
-        <View style={styles.metricGrid}>
-          <View style={styles.metricCard}>
-            <Text style={styles.metricIcon}>📶</Text>
-            <Text style={styles.metricLabel}>Signal Strength</Text>
-            <Text style={styles.metricValue}>{device.rssi ? `${device.rssi} dBm` : 'Good'}</Text>
-            <Text style={styles.metricSub}>Strong Link</Text>
+        <View style={styles.vitalsGrid}>
+          {/* Heart Rate */}
+          <View style={styles.vitalCard}>
+            <View style={styles.vitalHeaderRow}>
+              <Text style={styles.vitalIcon}>💓</Text>
+              <Text style={styles.vitalLabel}>Heart Rate</Text>
+            </View>
+            <Text style={styles.vitalValue}>
+              {telemetry?.heartRate !== undefined ? telemetry.heartRate : '--'}
+            </Text>
+            <Text style={styles.vitalUnit}>BPM (Pulse)</Text>
           </View>
 
-          <View style={styles.metricCard}>
-            <Text style={styles.metricIcon}>🔋</Text>
-            <Text style={styles.metricLabel}>Battery Level</Text>
-            <Text style={styles.metricValue}>{device.batteryLevel ? `${device.batteryLevel}%` : '98%'}</Text>
-            <Text style={styles.metricSub}>Fully Charged</Text>
+          {/* Blood Oxygen */}
+          <View style={styles.vitalCard}>
+            <View style={styles.vitalHeaderRow}>
+              <Text style={styles.vitalIcon}>🩸</Text>
+              <Text style={styles.vitalLabel}>Blood Oxygen</Text>
+            </View>
+            <Text style={styles.vitalValue}>
+              {telemetry?.spo2 !== undefined ? `${telemetry.spo2}%` : '--'}
+            </Text>
+            <Text style={styles.vitalUnit}>SpO2</Text>
+          </View>
+
+          {/* Body Temperature */}
+          <View style={styles.vitalCard}>
+            <View style={styles.vitalHeaderRow}>
+              <Text style={styles.vitalIcon}>🌡️</Text>
+              <Text style={styles.vitalLabel}>Temperature</Text>
+            </View>
+            <Text style={styles.vitalValue}>
+              {telemetry?.temperature !== undefined ? `${telemetry.temperature}°C` : '--'}
+            </Text>
+            <Text style={styles.vitalUnit}>Body Temp</Text>
+          </View>
+
+          {/* Battery */}
+          <View style={styles.vitalCard}>
+            <View style={styles.vitalHeaderRow}>
+              <Text style={styles.vitalIcon}>🔋</Text>
+              <Text style={styles.vitalLabel}>Battery</Text>
+            </View>
+            <Text style={styles.vitalValue}>
+              {telemetry?.battery !== undefined
+                ? `${telemetry.battery}%`
+                : device.batteryLevel !== undefined
+                ? `${device.batteryLevel}%`
+                : '--'}
+            </Text>
+            <Text style={styles.vitalUnit}>Peripheral Power</Text>
           </View>
         </View>
 
-        {/* Ready Notification Box */}
-        <View style={styles.readyCard}>
-          <Text style={styles.readyTitle}>✓ Ready to Receive Data</Text>
-          <Text style={styles.readyDescription}>
-            Bluetooth handshake established. Sensors are calibrated and awaiting measurement commands.
-          </Text>
-        </View>
-      </View>
+        {/* Live Incoming Packet Terminal */}
+        <View style={styles.terminalContainer}>
+          <View style={styles.terminalHeader}>
+            <View style={styles.terminalHeaderLeft}>
+              <View style={[styles.terminalDot, { backgroundColor: '#EF4444' }]} />
+              <View style={[styles.terminalDot, { backgroundColor: '#F59E0B' }]} />
+              <View style={[styles.terminalDot, { backgroundColor: '#10B981' }]} />
+              <Text style={styles.terminalTitle}>ESP32 Raw Data Stream</Text>
+            </View>
+            <TouchableOpacity onPress={handleSimulateTestPacket} activeOpacity={0.7}>
+              <Text style={styles.simulateButtonText}>+ Test Sample</Text>
+            </TouchableOpacity>
+          </View>
 
-      {/* Bottom Action Buttons */}
+          <View style={styles.terminalBody}>
+            {packetHistory.length === 0 ? (
+              <View style={styles.terminalEmpty}>
+                <Text style={styles.terminalEmptyText}>
+                  Waiting for notification packets from ESP32...
+                </Text>
+                <Text style={styles.terminalSubText}>
+                  Flash your ESP32 with the provided sketch. As soon as it notifies, packets will appear here in real-time.
+                </Text>
+              </View>
+            ) : (
+              packetHistory.map((item, idx) => (
+                <View key={item.id} style={styles.terminalRow}>
+                  <Text style={styles.terminalTimestamp}>[{item.time}]</Text>
+                  <Text
+                    style={[
+                      styles.terminalDataText,
+                      idx === 0 && styles.terminalDataLatest,
+                    ]}
+                    numberOfLines={2}
+                  >
+                    {item.text}
+                  </Text>
+                </View>
+              ))
+            )}
+          </View>
+        </View>
+      </ScrollView>
+
+      {/* Bottom Action Section */}
       <View style={styles.bottomSection}>
         {onGoToHome && (
-          <TouchableOpacity
-            style={styles.homeBtn}
-            onPress={onGoToHome}
-            activeOpacity={0.8}
-          >
-            <Text style={styles.homeBtnText}>View Healthcare Dashboard</Text>
+          <TouchableOpacity style={styles.homeBtn} onPress={onGoToHome} activeOpacity={0.85}>
+            <Text style={styles.homeBtnText}>Healthcare Portal</Text>
           </TouchableOpacity>
         )}
 
-        <TouchableOpacity
-          style={styles.disconnectBtn}
-          onPress={handleDisconnect}
-          activeOpacity={0.8}
-        >
+        <TouchableOpacity style={styles.disconnectBtn} onPress={handleDisconnect} activeOpacity={0.85}>
           <Text style={styles.disconnectText}>Disconnect Device</Text>
         </TouchableOpacity>
       </View>
@@ -111,54 +284,57 @@ export default function DeviceDetailScreen({ device, onDisconnect, onGoToHome }:
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#FFFFFF',
-    paddingHorizontal: 20,
+    backgroundColor: '#F8FAFC',
     justifyContent: 'space-between',
   },
+  scrollContent: {
+    paddingHorizontal: 20,
+    paddingBottom: 16,
+  },
   topHeaderCard: {
-    backgroundColor: '#F8FAFC',
+    backgroundColor: '#FFFFFF',
     borderRadius: 20,
-    padding: 20,
-    borderWidth: 1.5,
+    padding: 18,
+    borderWidth: 1,
     borderColor: '#E2E8F0',
     shadowColor: '#000000',
     shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.05,
-    shadowRadius: 8,
+    shadowOpacity: 0.04,
+    shadowRadius: 6,
     elevation: 2,
+    marginBottom: 16,
   },
   deviceHeaderRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginBottom: 16,
+    marginBottom: 14,
   },
   deviceIconCircle: {
-    width: 52,
-    height: 52,
-    borderRadius: 26,
+    width: 48,
+    height: 48,
+    borderRadius: 24,
     backgroundColor: '#E0F2FE',
     alignItems: 'center',
     justifyContent: 'center',
-    marginRight: 14,
+    marginRight: 12,
   },
   deviceIcon: {
-    fontSize: 26,
+    fontSize: 24,
   },
   deviceTitleContainer: {
     flex: 1,
   },
   deviceLabel: {
-    fontSize: 11,
-    fontWeight: '700',
+    fontSize: 10,
+    fontWeight: '800',
     color: '#0284C7',
-    letterSpacing: 0.8,
+    letterSpacing: 0.9,
     marginBottom: 2,
   },
   deviceName: {
     fontSize: 18,
     fontWeight: '800',
     color: '#0F172A',
-    lineHeight: 24,
   },
   statusRow: {
     flexDirection: 'row',
@@ -166,15 +342,15 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     paddingTop: 12,
     borderTopWidth: 1,
-    borderTopColor: '#E2E8F0',
+    borderTopColor: '#F1F5F9',
   },
   connectedBadge: {
     flexDirection: 'row',
     alignItems: 'center',
     backgroundColor: '#ECFDF5',
     paddingVertical: 5,
-    paddingHorizontal: 12,
-    borderRadius: 20,
+    paddingHorizontal: 10,
+    borderRadius: 16,
     borderWidth: 1,
     borderColor: '#A7F3D0',
   },
@@ -191,102 +367,194 @@ const styles = StyleSheet.create({
     color: '#047857',
   },
   deviceIdText: {
-    fontSize: 12,
+    fontSize: 11,
     color: '#64748B',
     fontFamily: 'monospace',
   },
-  contentSection: {
-    marginVertical: 20,
+  sectionHeaderRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 12,
   },
   sectionHeader: {
     fontSize: 15,
-    fontWeight: '700',
-    color: '#334155',
-    marginBottom: 12,
+    fontWeight: '800',
+    color: '#1E293B',
   },
-  metricGrid: {
+  liveIndicatorBadge: {
     flexDirection: 'row',
-    gap: 12,
-    marginBottom: 16,
+    alignItems: 'center',
+    backgroundColor: '#EFF6FF',
+    paddingVertical: 4,
+    paddingHorizontal: 8,
+    borderRadius: 12,
   },
-  metricCard: {
-    flex: 1,
-    backgroundColor: '#F8FAFC',
+  liveDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+    backgroundColor: '#38A3E5',
+    marginRight: 5,
+  },
+  liveIndicatorText: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: '#0284C7',
+  },
+  vitalsGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 12,
+    marginBottom: 18,
+  },
+  vitalCard: {
+    width: '48%',
+    backgroundColor: '#FFFFFF',
     borderRadius: 16,
     padding: 16,
     borderWidth: 1,
     borderColor: '#E2E8F0',
+    shadowColor: '#000000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.03,
+    shadowRadius: 4,
+    elevation: 1,
+  },
+  vitalHeaderRow: {
+    flexDirection: 'row',
     alignItems: 'center',
+    marginBottom: 8,
   },
-  metricIcon: {
-    fontSize: 22,
-    marginBottom: 6,
+  vitalIcon: {
+    fontSize: 18,
+    marginRight: 6,
   },
-  metricLabel: {
+  vitalLabel: {
     fontSize: 12,
+    fontWeight: '600',
     color: '#64748B',
-    marginBottom: 4,
   },
-  metricValue: {
-    fontSize: 17,
+  vitalValue: {
+    fontSize: 26,
     fontWeight: '800',
     color: '#0F172A',
     marginBottom: 2,
   },
-  metricSub: {
+  vitalUnit: {
     fontSize: 11,
-    color: '#10B981',
+    color: '#94A3B8',
     fontWeight: '600',
   },
-  readyCard: {
-    backgroundColor: '#F0F9FF',
-    borderRadius: 14,
-    padding: 16,
+  terminalContainer: {
+    backgroundColor: '#0F172A',
+    borderRadius: 16,
+    overflow: 'hidden',
     borderWidth: 1,
-    borderColor: '#BAE6FD',
+    borderColor: '#1E293B',
+    marginBottom: 16,
   },
-  readyTitle: {
-    fontSize: 14,
+  terminalHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    backgroundColor: '#1E293B',
+    borderBottomWidth: 1,
+    borderBottomColor: '#334155',
+  },
+  terminalHeaderLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  terminalDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    marginRight: 5,
+  },
+  terminalTitle: {
+    color: '#E2E8F0',
+    fontSize: 12,
     fontWeight: '700',
-    color: '#0369A1',
+    marginLeft: 6,
+  },
+  simulateButtonText: {
+    color: '#38BDF8',
+    fontSize: 11,
+    fontWeight: '700',
+  },
+  terminalBody: {
+    padding: 12,
+    maxHeight: 180,
+  },
+  terminalEmpty: {
+    paddingVertical: 16,
+    alignItems: 'center',
+  },
+  terminalEmptyText: {
+    color: '#94A3B8',
+    fontSize: 12,
+    fontStyle: 'italic',
     marginBottom: 4,
   },
-  readyDescription: {
-    fontSize: 12,
-    lineHeight: 18,
-    color: '#475569',
+  terminalSubText: {
+    color: '#64748B',
+    fontSize: 10,
+    textAlign: 'center',
+    paddingHorizontal: 16,
+  },
+  terminalRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    marginBottom: 6,
+  },
+  terminalTimestamp: {
+    color: '#64748B',
+    fontFamily: 'monospace',
+    fontSize: 11,
+    marginRight: 8,
+  },
+  terminalDataText: {
+    flex: 1,
+    color: '#CBD5E1',
+    fontFamily: 'monospace',
+    fontSize: 11,
+  },
+  terminalDataLatest: {
+    color: '#38BDF8',
+    fontWeight: '700',
   },
   bottomSection: {
-    width: '100%',
-    gap: 10,
+    paddingHorizontal: 20,
+    paddingTop: 10,
+    gap: 8,
+    backgroundColor: '#F8FAFC',
   },
   homeBtn: {
-    height: 52,
+    backgroundColor: '#FFFFFF',
+    paddingVertical: 13,
     borderRadius: 14,
-    backgroundColor: '#38A3E5',
+    borderWidth: 1.5,
+    borderColor: '#38A3E5',
     alignItems: 'center',
-    justifyContent: 'center',
-    shadowColor: '#38A3E5',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.25,
-    shadowRadius: 8,
-    elevation: 3,
   },
   homeBtnText: {
-    color: '#FFFFFF',
-    fontSize: 15,
+    color: '#38A3E5',
+    fontSize: 14,
     fontWeight: '700',
   },
   disconnectBtn: {
-    height: 48,
+    backgroundColor: '#FEE2E2',
+    paddingVertical: 13,
     borderRadius: 14,
-    borderWidth: 1.5,
-    borderColor: '#EF4444',
+    borderWidth: 1,
+    borderColor: '#FCA5A5',
     alignItems: 'center',
-    justifyContent: 'center',
   },
   disconnectText: {
-    color: '#EF4444',
+    color: '#DC2626',
     fontSize: 14,
     fontWeight: '700',
   },

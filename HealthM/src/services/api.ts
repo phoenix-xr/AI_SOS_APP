@@ -2,7 +2,7 @@ import { Platform } from 'react-native';
 import { storage } from './storage';
 
 export const DEFAULT_BASE_URL = Platform.select({
-  android: 'http://10.0.2.2:8000/api/v1',
+  android: 'http://localhost:8000/api/v1',
   ios: 'http://localhost:8000/api/v1',
   default: 'http://localhost:8000/api/v1',
 });
@@ -31,10 +31,11 @@ export const apiConfig = {
 };
 
 export interface User {
-  id: number;
+  id: string | number;
   username: string;
   email: string;
   full_name?: string | null;
+  role?: string;
   is_active: boolean;
   created_at: string;
 }
@@ -50,6 +51,24 @@ export interface HealthResponse {
   database: string;
   version: string;
   timestamp: string;
+}
+
+async function fetchWithFallback(url: string, init: RequestInit): Promise<Response> {
+  try {
+    return await fetch(url, init);
+  } catch (err) {
+    // If localhost failed on Android, fallback to emulator 10.0.2.2 or vice versa
+    if (Platform.OS === 'android') {
+      if (url.includes('localhost:8000')) {
+        const fallbackUrl = url.replace('localhost:8000', '10.0.2.2:8000');
+        return await fetch(fallbackUrl, init);
+      } else if (url.includes('10.0.2.2:8000')) {
+        const fallbackUrl = url.replace('10.0.2.2:8000', 'localhost:8000');
+        return await fetch(fallbackUrl, init);
+      }
+    }
+    throw err;
+  }
 }
 
 async function request<T>(
@@ -73,7 +92,7 @@ async function request<T>(
   const timeoutId = setTimeout(() => controller.abort(), 12000);
 
   try {
-    const response = await fetch(url, {
+    const response = await fetchWithFallback(url, {
       ...options,
       headers,
       signal: controller.signal,
@@ -109,7 +128,7 @@ async function request<T>(
     }
     if (error.message === 'Network request failed') {
       throw new Error(
-        `Unable to reach backend at ${currentBaseUrl}. Make sure the Docker database and FastAPI backend are running.`
+        `Unable to reach backend at ${currentBaseUrl}. Make sure the FastAPI backend is running.`
       );
     }
     throw error;

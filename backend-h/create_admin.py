@@ -1,35 +1,26 @@
 import asyncio
-from sqlalchemy import select
-from backend_h.core.database import AsyncSessionLocal, engine
-from backend_h.models.user import User
-from backend_h.core.security import get_password_hash
+from backend_h.core.supabase import supabase_service
 
 
-async def create_or_update_admin():
-    async with AsyncSessionLocal() as session:
-        stmt = select(User).where(User.username == "admin")
-        res = await session.execute(stmt)
-        user = res.scalar_one_or_none()
-        hashed = get_password_hash("admin")
-
-        if user:
-            user.hashed_password = hashed
-            user.is_active = True
-            print("[OK] User 'admin' already existed. Password updated to 'admin'.")
-        else:
-            new_user = User(
+async def verify_or_create_admin():
+    print("[*] Checking Supabase for admin user...")
+    try:
+        # Check login with default admin credentials
+        res = await supabase_service.login("admin", "admin")
+        print(f"[OK] Admin user verified! Logged in as: {res['user']['email']} (username: {res['user']['username']})")
+    except Exception:
+        print("[*] Admin not found or password differs. Creating admin via Supabase Admin API...")
+        try:
+            res = await supabase_service.register(
                 username="admin",
                 email="admin@healthmitra.com",
-                hashed_password=hashed,
+                password="admin",
                 full_name="Administrator",
-                is_active=True,
             )
-            session.add(new_user)
-            print("[OK] User 'admin' created successfully with password 'admin'.")
-
-        await session.commit()
-    await engine.dispose()
+            print(f"[OK] Admin user created successfully in Supabase: {res['user']['email']}")
+        except Exception as e:
+            print(f"[x] Error creating admin: {e}")
 
 
 if __name__ == "__main__":
-    asyncio.run(create_or_update_admin())
+    asyncio.run(verify_or_create_admin())

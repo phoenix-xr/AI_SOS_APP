@@ -1,4 +1,4 @@
 from backend_h.core.config import settings
-from backend_h.core.database import Base, check_db_health, engine, get_db
+from backend_h.core.supabase import supabase_service
 
-__all__ = ["settings", "Base", "engine", "get_db", "check_db_health"]
+__all__ = ["settings", "supabase_service"]

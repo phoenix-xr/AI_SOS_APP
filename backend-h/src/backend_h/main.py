@@ -4,28 +4,24 @@ import uvicorn
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-import backend_h.models  # noqa: F401 - ensure models are registered
 from backend_h.api.v1.router import api_router
 from backend_h.core.config import settings
-from backend_h.core.database import Base, engine
+from backend_h.core.supabase import supabase_service
 
+logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Startup tasks: auto-create database tables
-    try:
-        async with engine.begin() as conn:
-            await conn.run_sync(Base.metadata.create_all)
-        logger.info("Database tables initialized successfully.")
-    except Exception as exc:
-        logger.warning("Could not auto-initialize tables on startup: %s", exc)
+    # Verify Supabase connectivity on startup
+    connected = await supabase_service.check_health()
+    if connected:
+        logger.info("Connected to Supabase cloud service successfully.")
+    else:
+        logger.warning("Supabase cloud service is currently unreachable.")
 
     yield
-
-    # Shutdown tasks: dispose engine connection pool
-    await engine.dispose()
 
 
 def create_application() -> FastAPI:
@@ -59,6 +55,7 @@ def create_application() -> FastAPI:
             "version": settings.VERSION,
             "docs": "/docs",
             "health": f"{settings.API_V1_STR}/health",
+            "database": "Supabase Cloud",
         }
 
     # Include API router

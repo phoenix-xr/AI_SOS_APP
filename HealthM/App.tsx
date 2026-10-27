@@ -13,14 +13,20 @@ import BluetoothScanScreen from './src/screens/BluetoothScanScreen';
 import DeviceDetailScreen from './src/screens/DeviceDetailScreen';
 import HomeScreen from './src/screens/HomeScreen';
 import LoginScreen from './src/screens/LoginScreen';
+import NotAdminScreen from './src/screens/NotAdminScreen';
 import { BluetoothDevice } from './src/services/bluetooth';
 
 type AuthenticatedView = 'bt_connect' | 'bt_scanning' | 'bt_device' | 'home';
 
 function AuthenticatedNavigator(): React.JSX.Element {
-  const { logout } = useAuth();
+  const { user, logout } = useAuth();
   const [currentView, setCurrentView] = useState<AuthenticatedView>('bt_connect');
   const [connectedDevice, setConnectedDevice] = useState<BluetoothDevice | null>(null);
+
+  // Check if user role is not admin
+  if (user && user.role !== 'admin') {
+    return <NotAdminScreen user={user} onLogout={logout} />;
+  }
 
   // 1. Loading screen while scanning for our specific device
   if (currentView === 'bt_scanning') {

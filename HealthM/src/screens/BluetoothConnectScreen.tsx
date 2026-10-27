@@ -79,7 +79,7 @@ export default function BluetoothConnectScreen({ onStartScanning, onLogout }: Pr
           activeOpacity={0.85}
         >
           <Text style={styles.connectButtonIcon}>⚡</Text>
-          <Text style={styles.connectButtonText}>Connect</Text>
+          <Text style={styles.connectButtonText}>Scan for BLE Devices</Text>
         </TouchableOpacity>
       </View>
     </View>

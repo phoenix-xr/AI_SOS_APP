@@ -1,5 +1,5 @@
 from typing import List, Optional, Union
-from pydantic import computed_field, field_validator
+from pydantic import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -11,7 +11,7 @@ class Settings(BaseSettings):
         extra="ignore",
     )
 
-    PROJECT_NAME: str = "Backend API"
+    PROJECT_NAME: str = "HealthMitra API"
     VERSION: str = "0.1.0"
     API_V1_STR: str = "/api/v1"
     DEBUG: bool = True
@@ -20,37 +20,16 @@ class Settings(BaseSettings):
 
     ALLOWED_ORIGINS: Union[List[str], str] = ["*"]
 
-    # Database settings
-    POSTGRES_SERVER: str = "localhost"
-    POSTGRES_PORT: int = 5432
-    POSTGRES_USER: str = "postgres"
-    POSTGRES_PASSWORD: str = "postgres"
-    POSTGRES_DB: str = "healthmitra_db"
-    DATABASE_URL: Optional[str] = None
+    # Supabase Cloud Settings
+    SUPABASE_URL: str = "https://ntdjwxibywpyfsdoufcy.supabase.co"
+    SUPABASE_PUBLISHABLE_KEY: str = "sb_publishable_cIdE-Uhw87LSneTqBly2mA_kpHcVF50"
+    SUPABASE_SECRET_KEY: Optional[str] = None
+    SUPABASE_JWKS_URL: Optional[str] = None
 
-    # JWT Authentication settings
+    # JWT settings
     JWT_SECRET: str = "e932b1d30560938f42a781b2a95c4791dc0f4553b3fecbb072d6ca0495f3a027"
     JWT_ALGORITHM: str = "HS256"
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 60 * 24 * 7  # 7 days
-
-    # Supabase Cloud Settings
-    SUPABASE_URL: Optional[str] = None
-    SUPABASE_KEY: Optional[str] = None
-
-    @computed_field
-    @property
-    def async_database_url(self) -> str:
-        if self.DATABASE_URL:
-            url = self.DATABASE_URL
-            if url.startswith("postgresql://"):
-                return url.replace("postgresql://", "postgresql+asyncpg://", 1)
-            elif url.startswith("postgres://"):
-                return url.replace("postgres://", "postgresql+asyncpg://", 1)
-            return url
-        return (
-            f"postgresql+asyncpg://{self.POSTGRES_USER}:{self.POSTGRES_PASSWORD}"
-            f"@{self.POSTGRES_SERVER}:{self.POSTGRES_PORT}/{self.POSTGRES_DB}"
-        )
 
     @field_validator("ALLOWED_ORIGINS", mode="before")
     @classmethod

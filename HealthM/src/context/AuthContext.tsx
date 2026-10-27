@@ -15,6 +15,7 @@ export interface AuthUser {
   username: string;
   email: string;
   full_name?: string | null;
+  role?: string;
   is_active?: boolean;
   created_at?: string;
   provider: 'supabase' | 'custom_backend';
@@ -40,11 +41,27 @@ interface AuthContextType {
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
+async function fetchUserRole(sbUser: any): Promise<string> {
+  if (sbUser.user_metadata?.role) return sbUser.user_metadata.role;
+  if (sbUser.app_metadata?.role) return sbUser.app_metadata.role;
+  try {
+    const { data } = await supabase
+      .from('users')
+      .select('role')
+      .eq('id', sbUser.id)
+      .single();
+    if (data?.role) return data.role;
+  } catch {
+    // fallback
+  }
+  return 'user';
+}
+
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<AuthUser | null>(null);
   const [token, setToken] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState<boolean>(true);
-  const [authMode, setAuthMode] = useState<'supabase' | 'custom_backend'>('custom_backend');
+  const [authMode, setAuthMode] = useState<'supabase' | 'custom_backend'>('supabase');
 
   // Restore authenticated session on app launch
   const restoreSession = useCallback(async () => {
@@ -55,6 +72,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         const { data, error } = await supabase.auth.getSession();
         if (data?.session && !error) {
           const sbUser = data.session.user;
+          const userRole = await fetchUserRole(sbUser);
           setToken(data.session.access_token);
           setUser({
             id: sbUser.id,
@@ -64,6 +82,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
               'user',
             email: sbUser.email || '',
             full_name: sbUser.user_metadata?.full_name || null,
+            role: userRole,
             is_active: true,
             created_at: sbUser.created_at,
             provider: 'supabase',
@@ -81,6 +100,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           setToken(savedToken);
           setUser({
             ...currentUser,
+            role: currentUser.role || 'user',
             provider: 'custom_backend',
           });
         } catch {
@@ -99,9 +119,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
     // Listen to Supabase auth state changes
     const { data: authListener } = supabase.auth.onAuthStateChange(
-      (_event, session) => {
+      async (_event, session) => {
         if (authMode === 'supabase') {
           if (session) {
+            const userRole = await fetchUserRole(session.user);
             setToken(session.access_token);
             setUser({
               id: session.user.id,
@@ -111,6 +132,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
                 'user',
               email: session.user.email || '',
               full_name: session.user.user_metadata?.full_name || null,
+              role: userRole,
               is_active: true,
               created_at: session.user.created_at,
               provider: 'supabase',
@@ -144,6 +166,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       }
 
       if (data.session) {
+        const userRole = await fetchUserRole(data.session.user);
         setToken(data.session.access_token);
         setUser({
           id: data.session.user.id,
@@ -153,6 +176,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             'user',
           email: data.session.user.email || '',
           full_name: data.session.user.user_metadata?.full_name || null,
+          role: userRole,
           is_active: true,
           created_at: data.session.user.created_at,
           provider: 'supabase',
@@ -163,6 +187,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setToken(response.access_token);
       setUser({
         ...response.user,
+        role: response.user.role || 'user',
         provider: 'custom_backend',
       });
       await storage.saveToken(response.access_token);

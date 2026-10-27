@@ -1,20 +1,19 @@
 [project]
 name = "backend-h"
 version = "0.1.0"
-description = "FastAPI Backend API"
+description = "FastAPI Backend API powered by Supabase"
 readme = "README.md"
 authors = [
     { name = "GetInLinePal", email = "anshyt7499@gmail.com" }
 ]
 requires-python = ">=3.12"
 dependencies = [
-    "asyncpg>=0.32.0",
     "bcrypt>=5.0.0",
     "email-validator>=2.3.0",
     "fastapi>=0.161.1",
+    "httpx>=0.28.1",
     "pydantic-settings>=2.16.1",
     "pyjwt>=2.15.1",
-    "sqlalchemy[asyncio]>=2.1.6",
     "uvicorn[standard]>=0.54.0",
 ]
 
@@ -27,6 +26,5 @@ build-backend = "uv_build"
 
 [dependency-groups]
 dev = [
-    "httpx>=0.28.1",
     "pytest>=9.1.1",
 ]

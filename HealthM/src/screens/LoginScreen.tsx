@@ -14,11 +14,10 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useAuth } from '../context/AuthContext';
-import { apiConfig } from '../services/api';
 
 export default function LoginScreen() {
   const insets = useSafeAreaInsets();
-  const { login, register, authMode, setAuthMode } = useAuth();
+  const { login, register } = useAuth();
 
   const [isSignUp, setIsSignUp] = useState(false);
   const [username, setUsername] = useState('');
@@ -80,60 +79,6 @@ export default function LoginScreen() {
     Alert.alert('Reset Password', 'A password reset link will be sent to your registered email.');
   };
 
-  const handleConfigureServer = () => {
-    Alert.prompt
-      ? Alert.prompt(
-          'Backend API URL',
-          'Current target server for FastAPI + Docker PostgreSQL:',
-          [
-            { text: 'Cancel', style: 'cancel' },
-            {
-              text: 'Reset Default',
-              onPress: async () => {
-                await apiConfig.resetBaseUrl();
-                Alert.alert('Reset', `API Base URL reset to: ${apiConfig.getBaseUrl()}`);
-              },
-            },
-            {
-              text: 'Save',
-              onPress: async (newUrl?: string) => {
-                if (newUrl && newUrl.trim()) {
-                  await apiConfig.setBaseUrl(newUrl.trim());
-                  Alert.alert('Saved', `API Base URL updated to: ${apiConfig.getBaseUrl()}`);
-                }
-              },
-            },
-          ],
-          'plain-text',
-          apiConfig.getBaseUrl()
-        )
-      : Alert.alert('API Endpoint', `Current Base URL:\n${apiConfig.getBaseUrl()}`);
-  };
-
-  const handleToggleProvider = () => {
-    Alert.alert(
-      'Database Connection',
-      `Active mode: ${
-        authMode === 'supabase' ? 'Cloud Instance' : 'Local / VPS Server'
-      }`,
-      [
-        {
-          text: '☁️ Cloud Instance',
-          onPress: () => setAuthMode('supabase'),
-        },
-        {
-          text: '🖥️ Local / VPS Server',
-          onPress: () => setAuthMode('custom_backend'),
-        },
-        {
-          text: 'Configure Server URL',
-          onPress: handleConfigureServer,
-        },
-        { text: 'Cancel', style: 'cancel' },
-      ]
-    );
-  };
-
   return (
     <KeyboardAvoidingView
       style={styles.keyboardContainer}
@@ -158,11 +103,9 @@ export default function LoginScreen() {
             style={styles.logo}
             resizeMode="contain"
           />
-          <Text style={styles.subtitle}>
-            {isSignUp
-              ? 'Create your HealthMitra account'
-              : 'Sign in to access your healthcare portal'}
-          </Text>
+          {isSignUp ? (
+            <Text style={styles.subtitle}>Create your HealthMitra account</Text>
+          ) : null}
         </View>
 
         {/* Error Notification Banner */}
@@ -339,25 +282,6 @@ export default function LoginScreen() {
             </Text>
           </TouchableOpacity>
         </View>
-
-        {/* Database Provider Switcher */}
-        <TouchableOpacity
-          style={styles.serverInfoBox}
-          onPress={handleToggleProvider}
-          activeOpacity={0.7}
-        >
-          <View
-            style={[
-              styles.serverDot,
-              authMode === 'supabase' ? styles.serverDotSupabase : styles.serverDotDocker,
-            ]}
-          />
-          <Text style={styles.serverInfoText}>
-            {authMode === 'supabase'
-              ? '🟢 HealthMitra Cloud Secured'
-              : `🖥️ Server: ${apiConfig.getBaseUrl()}`}
-          </Text>
-        </TouchableOpacity>
       </ScrollView>
     </KeyboardAvoidingView>
   );
@@ -526,34 +450,5 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     color: '#38A3E5',
   },
-  serverInfoBox: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginTop: 28,
-    paddingVertical: 8,
-    paddingHorizontal: 14,
-    borderRadius: 20,
-    backgroundColor: '#F8FAFC',
-    alignSelf: 'center',
-    borderWidth: 1,
-    borderColor: '#E2E8F0',
-  },
-  serverDot: {
-    width: 8,
-    height: 8,
-    borderRadius: 4,
-    marginRight: 8,
-  },
-  serverDotSupabase: {
-    backgroundColor: '#10B981', // green for cloud
-  },
-  serverDotDocker: {
-    backgroundColor: '#3B82F6', // blue for docker
-  },
-  serverInfoText: {
-    fontSize: 11,
-    color: '#475569',
-    fontWeight: '600',
-  },
 });
+
