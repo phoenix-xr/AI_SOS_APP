@@ -30,7 +30,7 @@ dev = [
 ]
 
 [tool.vercel]
-entrypoint = "main.py"
+entrypoint = "main:app"
 
 [tool.fastapi]
 entrypoint = "main:app"
