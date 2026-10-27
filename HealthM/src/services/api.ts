@@ -1,18 +1,19 @@
 import { Platform } from 'react-native';
 import { storage } from './storage';
 
-export const DEFAULT_BASE_URL = Platform.select({
-  android: 'http://localhost:8000/api/v1',
-  ios: 'http://localhost:8000/api/v1',
-  default: 'http://localhost:8000/api/v1',
-});
+export const DEFAULT_BASE_URL = 'https://ai-sos-app-backend-h-blush.vercel.app/api/v1';
 
 let currentBaseUrl = DEFAULT_BASE_URL;
 
-// Initialize custom URL if previously saved
+// Initialize custom URL if previously saved, ignoring legacy localhost entries
 storage.getCustomBaseUrl().then(saved => {
-  if (saved) {
+  if (saved && !saved.includes('localhost') && !saved.includes('10.0.2.2')) {
     currentBaseUrl = saved;
+  } else {
+    currentBaseUrl = DEFAULT_BASE_URL;
+    if (saved) {
+      storage.saveCustomBaseUrl(DEFAULT_BASE_URL);
+    }
   }
 });
 
